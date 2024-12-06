@@ -21,6 +21,12 @@ app.use('/api/teams', teamsRoutes);
 app.use('/api/players', playersRoutes);
 app.use('/api/fixtures', fixturesRoutes);
 
+app.get('/', (req, res) => {  
+  res.json({
+    message: 'Server is OK......'
+  })
+});
+
 // Start the server
 app.listen(PORT, () => {
   console.log(`Server is running on port ${PORT}`);
