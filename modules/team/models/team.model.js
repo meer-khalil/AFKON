@@ -1,7 +1,7 @@
 import mongoose from 'mongoose';
 
 const CoachSchema = new mongoose.Schema({
-  id: { type: Number, unique: true },
+  id: { type: Number },
   name: { type: String },
   firstname: { type: String },
   lastname: { type: String },

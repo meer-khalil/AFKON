@@ -80,7 +80,7 @@ const buildQueryFilters = (query) => {
     return filters;
 };
 
-const buildQueryFiltersForSchema = (query) => {
+export const buildQueryFiltersForSchema = (query) => {
     const paramToSchemaMap = {
         id: 'fixture.id',
         league: 'league.id',
@@ -120,7 +120,7 @@ const buildQueryFiltersForSchema = (query) => {
 };
 
 // Helper function to build the third-party API URL
-const buildApiUrl = (query) => {
+export const buildApiUrl = (query) => {
     let apiUrl = '/fixtures?';
     for (const key in query) {
         apiUrl += `${key}=${query[key]}&`;

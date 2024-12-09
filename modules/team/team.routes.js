@@ -17,5 +17,4 @@ router.get('/coach', fetchAndUpdateCoachs);
 // Route to fetch and add countries
 router.get('/api/countries/fetch', fetchAndAddCountries);
 
-
 export default router;

@@ -94,6 +94,9 @@ const playerSchema = new mongoose.Schema({
         },
     }],
     seasons: { type: [Number], default: [] }, // Optional field for seasons
+    currentTeam: {
+        id: { type: Number }
+    },
     lastUpdated: { type: Date, default: Date.now }  // For cache timeout
 });
 

@@ -27,9 +27,9 @@ export const getPlayerProfile = async (req, res) => {
     }
 
     // Fetch player data from the database
-    let players = await Player.findOne(filter).select('player lastUpdated')
-      // .skip((page - 1) * limit)
-      // .limit(limit);
+    let players = await Player.findOne(filter).select('player currentTeam lastUpdated')
+    // .skip((page - 1) * limit)
+    // .limit(limit);
 
     // Check if cache data exists and is fresh
     if (players && Date.now() - players.lastUpdated?.getTime() < CACHE_EXPIRY) {
@@ -57,14 +57,14 @@ export const getPlayerProfile = async (req, res) => {
     const playerData = apiResponse.data.response[0];
     await Player.findOneAndUpdate(
       { 'player.id': playerData.player.id },
-      {player: playerData.player, lastUpdated: new Date()},
+      { player: playerData.player, lastUpdated: new Date() },
       { upsert: true, new: true, setDefaultsOnInsert: true }
     );
 
     // Fetch the updated data from the database
     players = await Player.findOne(filter).select('player lastUpdated')
-      // .skip((page - 1) * limit)
-      // .limit(limit);
+    // .skip((page - 1) * limit)
+    // .limit(limit);
 
     res.status(200).json(players);
   } catch (error) {
@@ -348,7 +348,7 @@ export const getTeamSquad = async (req, res) => {
     });
   } catch (error) {
     console.log('squard: ', error);
-    
+
     res.status(500).json({
       success: false,
       message: 'Error fetching team squad',
@@ -356,6 +356,160 @@ export const getTeamSquad = async (req, res) => {
     });
   }
 };
+
+
+const fetchTeamFromAPI = async (playerId) => {
+  // Replace with the actual API URL
+  const apiUrl = `/players/teams/?player=${playerId}`;
+  const response = await axios.get(apiUrl);
+  console.log('whole response: ', response);
+
+  return response.data.response[0].team; // Assuming API returns team data as `team`
+};
+
+
+import Fixture from '../fixtures/fixtures.model.js';
+import { buildApiUrl, buildQueryFiltersForSchema } from '../fixtures/fixtures.controller.js';
+export const getFixtures = async (query) => {
+  try {
+      const { live } = query;
+      const CACHE_DURATION = live === 'all' ? 60 * 60 * 1000 : 24 * 60 * 60 * 1000; // 15 seconds for live, 1 hour otherwise
+
+      const queryFilters = buildQueryFiltersForSchema(query);  // Helper function to handle allowed filters
+
+      
+      const LIVE_DURATION = 7200;  // 2 hours in seconds
+      const currentTimestamp = Math.floor(Date.now() / 1000);  // Current Unix timestamp
+
+      // Check for existing fixtures in the database
+      let fixture;
+      if (live == 'all') {
+          fixture = await Fixture.find({
+              $and: [
+                { 'fixture.timestamp': { $lte: currentTimestamp } },  // Match started
+                { 'fixture.timestamp': { $gte: currentTimestamp - LIVE_DURATION } }  // Still ongoing
+              ]
+            });            
+      } else {
+          const queryFilters = buildQueryFiltersForSchema(query);  // Helper function to handle allowed filters
+          console.log('queryFilters: ', queryFilters);
+          
+          fixture = await Fixture.find(queryFilters);  
+      }
+
+      console.log('already: ', fixture.length);
+      
+      // Check if cache is expired or data is missing
+      const isCacheExpired = !fixture.length || (Date.now() - new Date(fixture.lastUpdated).getTime()) > CACHE_DURATION;
+
+      if (!fixture.length || isCacheExpired) {
+          
+          // const queryFilters = buildQueryFilters(req.query);  // Helper function to handle allowed filters
+
+          // Fetch fresh data from third-party API
+          const apiUrl = buildApiUrl(query);  // Helper function to build API URL based on query
+          const response = await axios.get(apiUrl);
+          console.log('hello: ', response.data.response.length);
+          
+          if (response.status !== 200 || !response.data.response.length) {
+              return 'Fixture not found in third-party API';
+          }
+
+          // Delete previous data matching the query
+          const queryFiltersSchema = buildQueryFiltersForSchema(query);  // Helper function to handle allowed filters
+          await Fixture.deleteMany(queryFiltersSchema);
+
+          const fixturesList = response.data.response;
+
+          // Insert new fixture data
+          await Fixture.insertMany(fixturesList.map(fix => ({
+              ...fix,
+              lastUpdated: new Date()
+          })))
+          return fixturesList;
+      } else {
+          console.log('fixtures served from cache');
+          return fixture;
+      }
+
+  } catch (error) {
+      return { success: false, message: 'Error fetching fixtures', error: error.message };
+  }
+};
+
+
+// it will return the fixtures of the team.
+export const getPlayerCurrentTeam = async (req, res) => {
+  const { playerId } = req.query;
+
+  if (!playerId) {
+    return res.status(400).json({ success: false, message: 'Player ID is required' });
+  }
+
+  try {
+    // Look for the player in the database
+    let player = await Player.findOne({ 'player.id': playerId }).select('currentTeam');
+
+    const query = {
+      league: 6,
+      season: 2021,
+      from: '2022-01-09',
+      to: '2022-01-12',
+    }
+
+    if (player && player.currentTeam && player.currentTeam.id) {
+      console.log('(cache): current team served for playerId: ' + playerId);
+      
+      query.team = player.currentTeam.id;
+      let fixtures;
+      try {
+        fixtures = await getFixtures(query);
+        console.log('fixtures: ', fixtures);
+        
+      } catch (error) {
+        console.log('error while getting fixtures: ', error);        
+      }
+
+      // Return cached currentTeam
+      return res.status(200).json({ success: true, data: {player, fixtures} });
+    }
+
+    // Fetch team data from third-party API
+    const fetchedTeam = await fetchTeamFromAPI(playerId);
+    console.log('current Team: ', fetchedTeam);
+
+    if (!fetchedTeam) {
+      return res.status(404).json({ success: false, message: 'Team not found for the player' });
+    }
+
+    let fixtures;
+    try {
+      query.team = fetchedTeam.id;
+      fixtures = getFixtures(query);
+    } catch (error) {
+      console.log('errro while getting fixtures: ', error);        
+    }
+
+    if (player) {
+      // Update existing player with the fetched currentTeam
+      player.currentTeam = { id: fetchedTeam.id };
+      await player.save();
+    } else {
+      // Create a new player entry if it doesn't exist
+      player = new Player({
+        player: { id: playerId },
+        currentTeam: { id: fetchedTeam.id },
+      });
+      await player.save();
+    }
+
+    // Return the updated player data
+    res.status(200).json({ success: true, data: { player, fixtures} });
+  } catch (error) {
+    res.status(500).json({ success: false, message: 'Error fetching or updating player data', error: error.message });
+  }
+};
+
 
 export const getAllPlayers = async (req, res) => {
 
@@ -371,7 +525,7 @@ export const getAllPlayers = async (req, res) => {
     })
   } catch (error) {
     console.log('All Players: ', error);
-    
+
     res.status(500).json({
       success: false,
       message: 'Error fetching team squad',

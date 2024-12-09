@@ -37,6 +37,8 @@ export const getTeams = async (req, res) => {
 
     // Check if data exists in the database and is fresh
     let teams = await Team.find({}).select('team lastUpdated');
+    console.log('Teams: ', teams.length);
+    
     const isCacheExpired = !teams.length || (Date.now() - new Date(teams[0].lastUpdated).getTime()) > CACHE_DURATION;
 
     if (!teams.length || isCacheExpired) {
@@ -63,7 +65,7 @@ export const getTeams = async (req, res) => {
         ...team,
         lastUpdated: new Date()
       }));
-
+      
       await Team.insertMany(teamsToSave);
 
       // Retrieve the newly saved teams
@@ -113,8 +115,6 @@ export const fetchAndUpdateSeasons = async (req, res) => {
   try {
     // Check if the team exists and if the data is stale
     const existingTeam = await Team.findOne({ 'team.id': teamId }).select('seasons lastUpdated');
-
-    console.log('check: ', existingTeam);
     
     if (existingTeam) {
       
@@ -122,7 +122,7 @@ export const fetchAndUpdateSeasons = async (req, res) => {
       const isCacheValid = (Date.now() - lastUpdatedTime) < CACHE_DURATION;      
       
       if (isCacheValid && existingTeam.seasons && existingTeam.seasons.length > 0) {
-        console.log('seasons served from cache');
+        console.log('(cache): seasons served for team: ' + teamId);
         return res.status(200).json(existingTeam); // Return cached data
       }
     }
@@ -143,9 +143,7 @@ export const fetchAndUpdateSeasons = async (req, res) => {
       { new: true, upsert: true } // Return updated document, create if not exists
     ).select('seasons');
 
-    res.status(200).json({
-      data: updatedTeam
-    });
+    res.status(200).json(updatedTeam);
   } catch (error) {
     res.status(500).json({ error: 'Failed to fetch or update seasons', details: error.message });
   }
@@ -184,11 +182,13 @@ export const fetchAndUpdateCoachs = async (req, res) => {
   try {
     // Check if the team exists and if the data is stale
     const existingTeam = await Team.findOne({ 'team.id': teamId }).select('coach lastUpdated');
-
+    
     if (existingTeam && existingTeam.lastUpdated) {
       const isCacheValid = Date.now() - new Date(existingTeam.lastUpdated).getTime() < CACHE_DURATION;
+      console.log('isCacheBalid: ', isCacheValid);
+      
       if (isCacheValid && existingTeam.coach) {
-        console.log('couch served from cache');
+        console.log('(cache): couch served for teamId: ' + teamId);
         return res.status(200).json(existingTeam); // Return cached data
       }
     }
@@ -210,9 +210,9 @@ export const fetchAndUpdateCoachs = async (req, res) => {
       { new: true, upsert: true } // Return updated document, create if not exists
     ).select('coach');
 
-    res.status(200).json({
-      data: updatedTeam
-    });
+    console.log('(fetch) getting couch: ', teamId, updatedTeam);
+
+    res.status(200).json(updatedTeam);
   } catch (error) {
     console.log('couch: ', error);
     
