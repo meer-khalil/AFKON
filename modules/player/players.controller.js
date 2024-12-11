@@ -149,7 +149,7 @@ export const getPlayerStatistics = async (req, res) => {
     // return res.status(200).json('hello')
     const isCacheExpired = !playerData || (Date.now() - new Date(playerData.lastUpdated).getTime()) > CACHE_EXPIRY;
 
-    if (!playerData || isCacheExpired) {
+    if (!playerData?.statistics || isCacheExpired) {
       // Build the API request URL
       let apiUrl = `/players?season=${season}`;
       if (playerId) apiUrl += `&id=${playerId}`;
@@ -163,7 +163,7 @@ export const getPlayerStatistics = async (req, res) => {
       console.log(response.data);
 
       if (response.status !== 200 || !response.data.response.length) {
-        return res.status(404).json({ success: false, message: 'Player data not found in the third-party API' });
+        return res.status(200).json({ success: false, message: 'Statistics are not available' });
       }
 
       const fetchedPlayerData = response.data.response[0];
@@ -362,7 +362,7 @@ const fetchTeamFromAPI = async (playerId) => {
   // Replace with the actual API URL
   const apiUrl = `/players/teams/?player=${playerId}`;
   const response = await axios.get(apiUrl);
-  console.log('whole response: ', response);
+  console.log('whole response: ', response.data.response[0]);
 
   return response.data.response[0].team; // Assuming API returns team data as `team`
 };
@@ -446,9 +446,15 @@ export const getPlayerCurrentTeam = async (req, res) => {
     return res.status(400).json({ success: false, message: 'Player ID is required' });
   }
 
+  console.log('playerId: ', playerId);
+  
   try {
-    // Look for the player in the database
-    let player = await Player.findOne({ 'player.id': playerId }).select('currentTeam');
+    // Build query filter
+    let filter = {};
+    filter['players.id'] = playerId;
+
+    // Fetch player data from the database
+    let player = await Squad.findOne(filter).select('team lastUpdated');
 
     const query = {
       league: 6,
@@ -457,10 +463,13 @@ export const getPlayerCurrentTeam = async (req, res) => {
       to: '2022-01-12',
     }
 
-    if (player && player.currentTeam && player.currentTeam.id) {
+    console.log('player(db): ' + playerId + ' : ', player);
+    
+
+    if (player) {
       console.log('(cache): current team served for playerId: ' + playerId);
       
-      query.team = player.currentTeam.id;
+      query.team = player.team.id;
       let fixtures;
       try {
         fixtures = await getFixtures(query);
@@ -487,25 +496,14 @@ export const getPlayerCurrentTeam = async (req, res) => {
       query.team = fetchedTeam.id;
       fixtures = getFixtures(query);
     } catch (error) {
-      console.log('errro while getting fixtures: ', error);        
-    }
-
-    if (player) {
-      // Update existing player with the fetched currentTeam
-      player.currentTeam = { id: fetchedTeam.id };
-      await player.save();
-    } else {
-      // Create a new player entry if it doesn't exist
-      player = new Player({
-        player: { id: playerId },
-        currentTeam: { id: fetchedTeam.id },
-      });
-      await player.save();
+      console.log('error while getting fixtures: ', error);        
     }
 
     // Return the updated player data
     res.status(200).json({ success: true, data: { player, fixtures} });
   } catch (error) {
+    console.error('current fixtures for player: ', error);
+    
     res.status(500).json({ success: false, message: 'Error fetching or updating player data', error: error.message });
   }
 };
